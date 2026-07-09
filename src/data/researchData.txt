@@ -1,0 +1,16 @@
+Cloud migration helps organizations improve scalability,
+reduce infrastructure costs,
+increase availability,
+and modernize applications.
+
+Potential risks include:
+- downtime
+- security concerns
+- vendor lock-in
+- compliance challenges
+
+Best practices:
+- plan carefully
+- validate migrations
+- monitor workloads
+- maintain backups
