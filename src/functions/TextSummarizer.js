@@ -1,105 +1,114 @@
-const { app } = require('@azure/functions');
+/**
+ * @file TextSummarizer.js
+ * @description Azure Function that summarizes a block of text at a user-specified
+ * length (short / medium / detailed) using Azure AI Foundry.
+ */
 
-app.http('TextSummarizer', {
-    methods: ['GET', 'POST'],
-    authLevel: 'anonymous',
+const { app } = require("@azure/functions");
+const { callFoundry, getFoundryConfig } = require("../utils/foundryClient");
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const MAX_TEXT_LENGTH = 16_000;
+
+/** Maps each supported summaryLength value to a prompt instruction. */
+const SUMMARY_INSTRUCTIONS = {
+    short:    "Summarize the following text in exactly 2 concise sentences.",
+    medium:   "Summarize the following text in one clear, well-structured paragraph.",
+    detailed: "Provide a detailed, well-structured summary covering all key points of the following text.",
+};
+
+// ── Azure Function ────────────────────────────────────────────────────────────
+
+app.http("TextSummarizer", {
+    methods:   ["GET", "POST"],
+    authLevel: "anonymous",
     handler: async (request, context) => {
-
-        const startTime=Date.now();
+        const startTime = Date.now();
         context.log("TextSummarizer function started");
 
+        // Validate Foundry config before doing any work
+        try {
+            getFoundryConfig();
+        } catch {
+            return {
+                status:   500,
+                jsonBody: { error: "Server configuration error. Please contact the administrator." },
+            };
+        }
+
+        // Extract parameters from GET query string or POST body
         let text;
-        let summaryLength="medium";
-        
-        const foundryEndpoint=process.env.FOUNDRY_ENDPOINT;
-        const foundryApiKey=process.env.FOUNDRY_API_KEY;
-        const foundryModel=process.env.FOUNDRY_MODEL;
+        let summaryLength = "medium";
 
-        // context.log(`Endpoint: ${foundryEndpoint}`);
-        // context.log(`API Key exists: ${!!foundryApiKey}`);
-        // context.log(`Model: ${foundryModel}`);
-
-        if(!foundryEndpoint || !foundryApiKey || !foundryModel){
-            return{
-                status:500,
-                jsonBody:{
-                    error: "GPT-5 configuration is missing"
-                }
-            };
-        }
-        context.log("Foundry configuration loaded successfully");
-
-        if (request.method === 'GET') {
-            text = request.query.get('text');
+        if (request.method === "GET") {
+            text          = request.query.get("text");
+            summaryLength = request.query.get("summaryLength") ?? "medium";
         } else {
+            let body;
             try {
-                const body = await request.json();
-                text = body.text;
-                summaryLength=body.summaryLength || "medium";
-                context.log(`Summary length selected: ${summaryLength}`);
+                body = await request.json();
             } catch {
-                text = null;
+                return {
+                    status:   400,
+                    jsonBody: { error: "Invalid JSON in request body." },
+                };
             }
+            text          = body?.text;
+            summaryLength = body?.summaryLength ?? "medium";
         }
 
-        if (!text) {
+        // Validate text
+        if (!text || !text.trim()) {
             return {
-                status: 400,
-                jsonBody: {
-                    error: 'Please provide text to summarize'
-                }
+                status:   400,
+                jsonBody: { error: "Please provide a 'text' field to summarize." },
             };
         }
 
-        const validLengths = ['short', 'medium', 'detailed'];
-
-        if (!validLengths.includes(summaryLength)) {
+        if (text.length > MAX_TEXT_LENGTH) {
             return {
-                status: 400,
-                jsonBody: {
-                    error: 'summaryLength must be short, medium, or detailed'
-                }
+                status:   400,
+                jsonBody: { error: `Text must not exceed ${MAX_TEXT_LENGTH} characters.` },
             };
         }
 
-        let summaryInstruction;
-
-        if (summaryLength === 'short') {
-            summaryInstruction = 'Summarize in 2 sentences.';
-        } else if (summaryLength === 'medium') {
-            summaryInstruction = 'Summarize in one paragraph.';
-        } else {
-            summaryInstruction = 'Provide a detailed summary.';
+        // Validate summaryLength
+        if (!Object.hasOwn(SUMMARY_INSTRUCTIONS, summaryLength)) {
+            return {
+                status:   400,
+                jsonBody: {
+                    error: `'summaryLength' must be one of: ${Object.keys(SUMMARY_INSTRUCTIONS).join(", ")}.`,
+                },
+            };
         }
+
+        context.log(`Summary length selected: ${summaryLength}`);
+
+        // Call AI model
+        const prompt = `${SUMMARY_INSTRUCTIONS[summaryLength]}\n\nText:\n${text.trim()}`;
 
         let summary;
+        try {
+            summary = await callFoundry(prompt);
+        } catch (error) {
+            context.log(`AI call failed: ${error.message}`);
+            return {
+                status:   502,
+                jsonBody: { error: "Failed to get a response from the AI model. Please try again." },
+            };
+        }
 
-        const aiResponse = await fetch(foundryEndpoint,{
-           method:'POST',
-           headers:{
-            'Content-Type':'application/json',
-            'api-key':foundryApiKey
-           } ,
-           body:JSON.stringify({
-            model:foundryModel,
-            input:`${summaryInstruction}\n\nText:\n${text}`
-           })
-        });
+        const responseTimeMs = Date.now() - startTime;
+        context.log(`Summary generated in ${responseTimeMs} ms`);
 
-        const aiResult=await aiResponse.json();
-        // context.log(JSON.stringify(aiResult));
-        summary = aiResult.output[1].content[0].text;
-
-        const responseTimeMs=Date.now()-startTime;
-        context.log(`Summary generated successfully in ${responseTimeMs} ms`);
         return {
-            status: 200,
+            status:   200,
             jsonBody: {
-                // originalText: text,
-                summary: summary,
-                summaryLength: summaryLength,
-                responseTimeMs: responseTimeMs
-            }
+                summary,
+                summaryLength,
+                responseTimeMs,
+            },
         };
-    }
+    },
 });

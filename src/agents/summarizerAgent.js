@@ -1,36 +1,44 @@
+/**
+ * @file summarizerAgent.js
+ * @description Calls Azure AI Foundry to produce a concise summary of the
+ * research findings. Uses the shared foundryClient utility for all AI calls.
+ */
+
+const { callFoundry } = require("../utils/foundryClient");
+
+/**
+ * @param {{ originalQuery: string, tasks: string[], findings: string }} researchResult
+ * @returns {Promise<{ originalQuery: string, findings: string, summary: string }>}
+ * @throws {Error} if the AI call fails.
+ */
 async function summarizerAgent(researchResult) {
+    const { originalQuery, tasks, findings } = researchResult;
 
-    const foundryEndpoint =process.env.FOUNDRY_ENDPOINT;
-    const foundryApiKey =process.env.FOUNDRY_API_KEY;
-    const foundryModel =process.env.FOUNDRY_MODEL;
+    const taskContext = tasks?.map((t) => `- ${t}`).join("\n") ?? "";
+
     const prompt = `You are an expert summarization agent.
-                    User Query:${researchResult.originalQuery}
-                    Research Findings:${researchResult.findings}
-                    Create a concise and professional summary.`;
 
-    const aiResponse = await fetch(foundryEndpoint,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "api-key": foundryApiKey
-            },
-            body: JSON.stringify({
-                model: foundryModel,
-                input: prompt
-            })
-        }
-    );
+User Query: ${originalQuery}
 
-    const aiResult =await aiResponse.json();
-    const summary =aiResult.output[1].content[0].text;
+Research Tasks:
+${taskContext}
+
+Research Findings:
+${findings}
+
+Based on the findings above, create a concise and professional summary that directly addresses the user's query.`;
+
+    let summary;
+    try {
+        summary = await callFoundry(prompt);
+    } catch (error) {
+        throw new Error(`summarizerAgent: ${error.message}`);
+    }
 
     return {
-        originalQuery:researchResult.originalQuery,
-
-        findings:researchResult.findings,
-
-        summary:summary
+        originalQuery,
+        findings,
+        summary,
     };
 }
 

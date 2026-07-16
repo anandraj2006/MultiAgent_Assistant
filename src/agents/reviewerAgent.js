@@ -1,63 +1,50 @@
+/**
+ * @file reviewerAgent.js
+ * @description Calls Azure AI Foundry to review and improve the summary produced
+ * by the summarizer agent. Applies formatting rules to produce clean Markdown output.
+ */
+
+const { callFoundry } = require("../utils/foundryClient");
+
+const REVIEWER_SYSTEM_INSTRUCTIONS = `You are a review agent. Your job is to improve the readability and structure of an AI-generated summary.
+
+Rules:
+- Preserve all important information — do not omit or alter facts.
+- Improve readability, flow, and clarity.
+- Use clear Markdown headings where appropriate (e.g. # Title, ## Section).
+- Use bullet points for lists.
+- Add blank lines between sections for scanability.
+- Adapt the structure to the topic naturally — do not force a rigid template.
+- Return ONLY well-formatted Markdown.
+- Do NOT include any preamble such as "Here is the improved response:".`;
+
+/**
+ * @param {{ originalQuery: string, findings: string, summary: string }} summaryResult
+ * @returns {Promise<{ originalQuery: string, findings: string, summary: string, finalResponse: string }>}
+ * @throws {Error} if the AI call fails.
+ */
 async function reviewerAgent(summaryResult) {
+    const { originalQuery, findings, summary } = summaryResult;
 
-    const foundryEndpoint = process.env.FOUNDRY_ENDPOINT;
-    const foundryApiKey = process.env.FOUNDRY_API_KEY;
-    const foundryModel = process.env.FOUNDRY_MODEL;
+    const prompt = `${REVIEWER_SYSTEM_INSTRUCTIONS}
 
-    const prompt = `You are a review agent.
+Summary to review:
+${summary}
 
-                Review and improve the response.
+Return only the improved response.`;
 
-                Rules:
-                - Preserve all important information.
-                - Improve readability.
-                - Use clear headings when appropriate.
-                - Use bullet points for lists.
-                - Add blank lines between sections.
-                - Add blank lines between bullet points.
-                - Make the response easy for a human to scan quickly.
-                - Adapt the structure to the topic automatically.
-                - Do not force a specific template.
-                - Return well-formatted Markdown.
-                - Use headings:
-                    # Title
-                    ## Benefits
-                    ## Risks
-                    ## Best Practices
-                -blank line between each heading
-
-
-                Summary:
-                ${summaryResult.summary}
-
-                Return only the improved response.`;
-
-    const aiResponse = await fetch(foundryEndpoint,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "api-key": foundryApiKey
-            },
-            body: JSON.stringify({
-                model: foundryModel,
-                input: prompt
-            })
-        }
-    );
-
-    const aiResult = await aiResponse.json();
-
-    const reviewedResponse = aiResult.output[1].content[0].text;
+    let finalResponse;
+    try {
+        finalResponse = await callFoundry(prompt);
+    } catch (error) {
+        throw new Error(`reviewerAgent: ${error.message}`);
+    }
 
     return {
-        originalQuery: summaryResult.originalQuery,
-
-        findings: summaryResult.findings,
-
-        summary: summaryResult.summary,
-
-        finalResponse: reviewedResponse
+        originalQuery,
+        findings,
+        summary,
+        finalResponse,
     };
 }
 

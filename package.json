@@ -1,7 +1,7 @@
 {
-  "name": "",
+  "name": "multiagent-assistant",
   "version": "1.0.0",
-  "description": "",
+  "description": "Serverless multi-agent AI assistant built with Azure Functions and Azure AI Foundry.",
   "main": "src/functions/*.js",
   "scripts": {
     "start": "func start",
